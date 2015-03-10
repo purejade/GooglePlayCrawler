@@ -13,14 +13,19 @@ import json
 import Queue
 import time
 import os
+import random
 
 prefix = 'http://apkleecher.com/'
 taskQueue = Queue.Queue(-1)
 
-APP_DIR = 'G:'+os.sep+'FtpDir'+os.sep+'PLAY_APP'+os.sep
+if  2==2:
+    APP_DIR = 'G:'+os.sep+'FtpDir'+os.sep+'PLAY_APP'+os.sep
+else:
+    APP_DIR = 'G:'+os.sep+'FtpDir'+os.sep+'tmp'+os.sep
 
 lost_app_file = open(APP_DIR+'lost_app_file','a+')
 finished_app_file = open(APP_DIR+'finished_app_file','a+')
+exception_app_file = open(APP_DIR+'exception_app_file','a+')
 
 APP_MAP = {}
 
@@ -46,85 +51,154 @@ class GoogleDownloader(threading.Thread):
         threading.Thread.__init__(self)
         self.session = requests.session()
         self.name = name
+        self.daemon = True
 
     def run(self):
         if taskQueue.empty():
-            pass
+            return
         while taskQueue.empty()  == False:
             try:
-                url = prefix = 'http://apkleecher.com/'
+                del self.session
+                self.session = requests.session()
+                url = 'http://apkleecher.com/'
                 id_value = taskQueue.get()
                 # if os.path.exists(APP_DIR+id_value+'.apk'):
                 if APP_MAP.has_key(id_value):
-                    print 'has been downloaded'
+                    taskQueue.task_done()
                     continue
-
                 self.download(url,id_value)
                 taskQueue.task_done()
             except Exception as e:
-                print str(e)
-                print id_value
                 append_page(lost_app_file,id_value)
                 taskQueue.task_done()
 
 
     def download(self,url,id_value):
+        proxies = {
+            'http': 'http://127.0.0.1:8087',
+            'https': 'http://127.0.0.1:8087',
+        }
+        print 'downloading the ' + id_value
+        try:
+            resp = self.session.get(url,timeout = 100,proxies=proxies, verify=False)
+            if not resp:
+                append_page(lost_app_file,id_value)
+                print 'wrong download ' + id_value
+                return
 
-        resp = self.session.get(url)
-        # write_page('index.html',resp.content)
-        resp = self.session.get(prefix+'?id='+id_value)
-        write_page('down.html',resp.content)
-        if not resp:
-            print 'can not find the ' + str(id_value) + 'first graph'
-            append_page(lost_app_file,id_value)
+                # write_page('index.html',resp.content)
+                resp = self.session.get(prefix+'?id='+id_value,timeout = 100,proxies=proxies, verify=False)
+            # write_page('down.html',resp.content)
+            if not resp:
+                # print 'can not find the ' + str(id_value) + 'first graph'
+                append_page(lost_app_file,id_value)
+                print 'wrong download ' + id_value
+                return
+            if 'This app might be incompatible with our downloader' in resp.content:
+                # print   id_value + 'This app might be incompatible with our downloader'
+                print 'wrong download ' + id_value
+                lost_app_file.write(id_value)
+                lost_app_file.write(os.linesep)
+                return
+            content = resp.content
+            index = content.find('Proceed to download page')
+            content = content[index-100:index]
+            loader_dl_object = re.search(r'href="(.*?)">',content)
+            if not loader_dl_object:
+                append_page(lost_app_file,id_value)
+                print 'wrong download ' + id_value
+                return
+            loader_dl = loader_dl_object.group(1)
+            # print loader_dl
+            resp = self.session.get('http://apkleecher.com/'+loader_dl[2:],timeout = 100,proxies=proxies, verify=False)
+            # write_page('downapk.html',resp.content)
+            self.session.headers.update(HEADERS)
+            if not resp:
+                # print 'can not find the ' + str(id_value) + 'second graph'
+                print 'wrong download ' + id_value
+                append_page(lost_app_file,id_value)
+                return
+            loader_url_object = re.search(r'setTimeout\(\'location.href="\.\.\/\.\.\/(.*?)"\',25000\);',resp.content)
+            if not loader_url_object:
+                loader_url_object = re.search(r'setTimeout\(\'location.href="\.\.\/(.*?)"\',25000\);',resp.content)
+            if not loader_url_object:
+                # print id_value
+                # print 'not exist two'
+                append_page(lost_app_file,id_value)
+                # print content
+                print 'wrong download ' + id_value
+                return
+            loader_url = loader_url_object.group(1)
+            # print loader_url
+            # self.session.headers['referer'] = 'http://apkleecher.com/download/?dl=com.lego.starwars.theyodachronicles'
+            try:
+                resp = self.session.get('http://apkleecher.com/'+loader_url,timeout = 100,proxies=proxies, verify=False)
+            except requests.exceptions.Timeout as timeout:
+                print str(timeout)
+                return
+            if resp.status_code != 200 or not resp:
+                append_page(lost_app_file,id_value)
+                # print id_value
+                # print content
+                print 'wrong download ' + id_value
+                return
+            with open(APP_DIR+id_value+'.apk','wb') as f:   # write by binary format not ascii
+                f.write(resp.content)
+                self.finished = self.finished + 1
+                append_page(finished_app_file,id_value)
+                print id_value + ' is over!'
+        except Exception as t:
+            print str(t)
             return
-        if 'This app might be incompatible with our downloader' in resp.content:
-            print   id_value + 'This app might be incompatible with our downloader'
-            lost_app_file.write(id_value)
-            lost_app_file.write(os.linesep)
-            return
-        content = resp.content
-        index = content.find('Proceed to download page')
-        content = content[index-100:index]
-        loader_dl_object = re.search(r'href="(.*?)">',content)
-        if not loader_dl_object:
-            print id_value
-            print 'not exist one'
-            append_page(lost_app_file,id_value)
-            print content
-            return
-        loader_dl = loader_dl_object.group(1)
-        # print loader_dl
-        resp = self.session.get('http://apkleecher.com/'+loader_dl[2:])
-        write_page('downapk.html',resp.content)
-        self.session.headers.update(HEADERS)
-        if not resp:
-            print 'can not find the ' + str(id_value) + 'second graph'
-            append_page(lost_app_file,id_value)
-            return
-        loader_url_object = re.search(r'setTimeout\(\'location.href="\.\.\/\.\.\/(.*?)"\',25000\);',resp.content)
-        if not loader_url_object:
-            loader_url_object = re.search(r'setTimeout\(\'location.href="\.\.\/(.*?)"\',25000\);',resp.content)
-        if not loader_url_object:
-            print id_value
-            print 'not exist two'
-            append_page(lost_app_file,id_value)
-            print content
-            return
-        loader_url = loader_url_object.group(1)
-        print loader_url
-        # self.session.headers['referer'] = 'http://apkleecher.com/download/?dl=com.lego.starwars.theyodachronicles'
-        resp = self.session.get('http://apkleecher.com/'+loader_url,timeout = 100)
-        if resp.status_code != 200:
-            append_page(lost_app_file,id_value)
-            print id_value
-            print content
-            return
-        with open(APP_DIR+id_value+'.apk','wb') as f:   # write by binary format not ascii
-            f.write(resp.content)
-            self.finished = self.finished + 1
-            append_page(finished_app_file,id_value)
-        time.sleep(3)
+        # time.sleep(3)
+
+def CreateDataFromJson():
+    playstore_handler = open('playstore.json','rb')
+    k = 1
+    limit = 20000
+    start = random.randint(13000,20000)
+    print 'loading data'
+    for line in playstore_handler:
+        lineObject = json.loads(line)
+        id_value = lineObject["Url"]
+        id_value = id_value[id_value.find('=')+1:]
+        if k > start:
+            taskQueue.put(id_value)
+        k = k + 1
+        # if k > start + limit:
+        #     break
+    print 'load over!'
+
+def CreateDataFromLostData():
+    lostfilenames = open(APP_DIR+'lost_app_file','rb')
+    k = 1
+    limit = 10
+
+    for lostfilename in lostfilenames:
+        lostfilename = lostfilename.strip()
+        if lostfilename:
+            taskQueue.put(lostfilename)
+        # k = k + 1
+        # if k > limit:
+        #     break
+    lostfilenames.close()
+
+def TestData():
+    test = 'com.checkprice.scanner'
+    taskQueue.put(test)
+
+def InitLostAppFile():
+    apps=[]
+    lostfilenames = open(APP_DIR+'lost_app_file','rb')
+    for lostfilename in lostfilenames:
+        lostfilename = lostfilename.strip()
+        if lostfilename:
+            apps.append(lostfilename)
+    appset = set(apps)
+    lostfilenames.close()
+    with open(APP_DIR+'lost_app_file','wb') as f:
+        for app in appset:
+            append_page(f,app)
 
 if __name__ == '__main__':
 
@@ -142,39 +216,36 @@ if __name__ == '__main__':
     # print "ok"
 
     # filenames = os.listdir(APP_DIR)
+    InitLostAppFile()
     filenames = open(APP_DIR+'finished_app_file','rb')
     for filename in filenames:
         filename = filename.strip()
         if filename:
             APP_MAP[filename] = 1
     filenames.close()
+    filenames = open(APP_DIR+'lost_app_file','rb')
+    for filename in filenames:
+        filename = filename.strip()
+        if filename:
+            APP_MAP[filename] = 1
 
-    playstore_handler = open('playstore.json','rb')
-    k = 1
-    limit = 20000
-    for line in playstore_handler:
-        lineObject = json.loads(line)
-        # print lineObject["Url"]
-        id_value = lineObject["Url"]
-        id_value = id_value[id_value.find('=')+1:]
-        if k > 10000:
-            taskQueue.put(id_value)
-        k = k + 1
-        if k > limit:
-            break
+    filenames.close()
 
-    num_threads = 10
+    CreateDataFromJson()
+    # CreateData2()
+    # TestData()
+
+    num_threads = 8
     start = time.clock()
     thread_array = []
+
     for i in range(num_threads):
         google_downloader = GoogleDownloader(str(i))
-        google_downloader.daemon = True
-        thread_array.append(google_downloader)
         google_downloader.start()
+        thread_array.append(google_downloader)
 
-    # taskQueue.join()
-    for i in range(num_threads):
-        thread_array[i].join()
+    for thread in thread_array:
+        thread.join()
 
     end = time.clock()
 
