@@ -18,14 +18,10 @@ import random
 prefix = 'http://apkleecher.com/'
 taskQueue = Queue.Queue(-1)
 
-if  2==2:
-    APP_DIR = 'G:'+os.sep+'FtpDir'+os.sep+'PLAY_APP'+os.sep
-else:
-    APP_DIR = 'G:'+os.sep+'FtpDir'+os.sep+'tmp'+os.sep
+APP_DIR = 'G:'+os.sep+'FtpDir'+os.sep+'PLAY_APP'+os.sep
 
 lost_app_file = open(APP_DIR+'lost_app_file','a+')
 finished_app_file = open(APP_DIR+'finished_app_file','a+')
-exception_app_file = open(APP_DIR+'exception_app_file','a+')
 
 APP_MAP = {}
 
@@ -47,6 +43,7 @@ HEADERS = {
 
 class GoogleDownloader(threading.Thread):
     finished = 0
+    count = 0
     def __init__(self,name):
         threading.Thread.__init__(self)
         self.session = requests.session()
@@ -74,28 +71,24 @@ class GoogleDownloader(threading.Thread):
 
 
     def download(self,url,id_value):
-        proxies = {
-            'http': 'http://127.0.0.1:8087',
-            'https': 'http://127.0.0.1:8087',
-        }
+
         print 'downloading the ' + id_value
         try:
-            resp = self.session.get(url,timeout = 100,proxies=proxies, verify=False)
-            if not resp:
-                append_page(lost_app_file,id_value)
+            time.sleep(10)
+            resp = self.session.get(url,timeout = 20)
+            if not resp or resp.status_code != 200:
+                # append_page(lost_app_file,id_value)
+                print 'first wrong!'
                 print 'wrong download ' + id_value
+                time.sleep(10)
                 return
 
-                # write_page('index.html',resp.content)
-                resp = self.session.get(prefix+'?id='+id_value,timeout = 100,proxies=proxies, verify=False)
-            # write_page('down.html',resp.content)
+            resp = self.session.get(prefix+'?id='+id_value)
             if not resp:
-                # print 'can not find the ' + str(id_value) + 'first graph'
                 append_page(lost_app_file,id_value)
                 print 'wrong download ' + id_value
                 return
             if 'This app might be incompatible with our downloader' in resp.content:
-                # print   id_value + 'This app might be incompatible with our downloader'
                 print 'wrong download ' + id_value
                 lost_app_file.write(id_value)
                 lost_app_file.write(os.linesep)
@@ -109,12 +102,9 @@ class GoogleDownloader(threading.Thread):
                 print 'wrong download ' + id_value
                 return
             loader_dl = loader_dl_object.group(1)
-            # print loader_dl
-            resp = self.session.get('http://apkleecher.com/'+loader_dl[2:],timeout = 100,proxies=proxies, verify=False)
-            # write_page('downapk.html',resp.content)
+            resp = self.session.get('http://apkleecher.com/'+loader_dl[2:])
             self.session.headers.update(HEADERS)
             if not resp:
-                # print 'can not find the ' + str(id_value) + 'second graph'
                 print 'wrong download ' + id_value
                 append_page(lost_app_file,id_value)
                 return
@@ -122,24 +112,17 @@ class GoogleDownloader(threading.Thread):
             if not loader_url_object:
                 loader_url_object = re.search(r'setTimeout\(\'location.href="\.\.\/(.*?)"\',25000\);',resp.content)
             if not loader_url_object:
-                # print id_value
-                # print 'not exist two'
                 append_page(lost_app_file,id_value)
-                # print content
                 print 'wrong download ' + id_value
                 return
             loader_url = loader_url_object.group(1)
-            # print loader_url
-            # self.session.headers['referer'] = 'http://apkleecher.com/download/?dl=com.lego.starwars.theyodachronicles'
             try:
-                resp = self.session.get('http://apkleecher.com/'+loader_url,timeout = 100,proxies=proxies, verify=False)
+                resp = self.session.get('http://apkleecher.com/'+loader_url,timeout = 100)
             except requests.exceptions.Timeout as timeout:
                 print str(timeout)
                 return
             if resp.status_code != 200 or not resp:
                 append_page(lost_app_file,id_value)
-                # print id_value
-                # print content
                 print 'wrong download ' + id_value
                 return
             with open(APP_DIR+id_value+'.apk','wb') as f:   # write by binary format not ascii
@@ -147,16 +130,24 @@ class GoogleDownloader(threading.Thread):
                 self.finished = self.finished + 1
                 append_page(finished_app_file,id_value)
                 print id_value + ' is over!'
+                self.count = self.count + 1
+                if self.count == 1000:
+                    time.sleep(100)
+                    self.count = 0
+            time.sleep(3)
         except Exception as t:
             print str(t)
+            time.sleep(10)
             return
         # time.sleep(3)
 
 def CreateDataFromJson():
     playstore_handler = open('playstore.json','rb')
-    k = 1
-    limit = 20000
-    start = random.randint(13000,20000)
+
+    k = 10000
+    limit = 30000
+    start = random.randint(20000,25000)
+
     print 'loading data'
     for line in playstore_handler:
         lineObject = json.loads(line)
@@ -165,22 +156,23 @@ def CreateDataFromJson():
         if k > start:
             taskQueue.put(id_value)
         k = k + 1
-        # if k > start + limit:
-        #     break
+        if k > limit:
+            break
     print 'load over!'
 
 def CreateDataFromLostData():
     lostfilenames = open(APP_DIR+'lost_app_file','rb')
-    k = 1
-    limit = 10
-
+    k = 10000
+    limit = 25000
+    start = random.randint(15000,17000)
     for lostfilename in lostfilenames:
         lostfilename = lostfilename.strip()
         if lostfilename:
-            taskQueue.put(lostfilename)
-        # k = k + 1
-        # if k > limit:
-        #     break
+            if k > start:
+                taskQueue.put(lostfilename)
+        k = k + 1
+        if k > limit:
+             break
     lostfilenames.close()
 
 def TestData():
